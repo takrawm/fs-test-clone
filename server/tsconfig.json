@@ -1,22 +1,21 @@
-// tsconfig.json（修正例）
 {
   "compilerOptions": {
     "target": "ESNext",
     "module": "NodeNext",
-    "moduleResolution": "NodeNext", // 明示しておくと安心
+    "moduleResolution": "NodeNext",
     "strict": true,
     "verbatimModuleSyntax": true,
+    "esModuleInterop": true,
     "skipLibCheck": true,
     "types": ["node", "jest"],
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx",
     "outDir": "./dist",
-
-    // ← ここに入れる！
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"]
-    }
+    },
+    "isolatedModules": true
   },
   "exclude": ["node_modules"],
   "include": ["src/**/*", "tests/**/*"]
