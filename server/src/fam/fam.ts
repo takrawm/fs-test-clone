@@ -52,6 +52,7 @@ export class FAM {
 		this.orderAccounts = Array.from(names);
 
 		// FY 仮採番（必要なら後で外部入力に差し替え）
+		// TODO: 外部入力からのFY取得
 		const startYear = 2000;
 		this.actualYears = PREVS.map((_, i) => startYear + i);
 
