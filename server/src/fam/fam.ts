@@ -37,8 +37,6 @@ export class FAM {
 
 	// ---- Public API ----
 	importActuals(PREVS: Array<Record<string, number>>, accountsMaster?: Account[]) {
-		if (!PREVS.length) throw new Error('PREVS is empty');
-
 		// アカウント辞書準備
 		const names = new Set<string>();
 		for (const snap of PREVS) for (const k of Object.keys(snap)) names.add(k);
@@ -85,6 +83,104 @@ export class FAM {
 		this.bc = Array.isArray(cfis) ? [...cfis] : [];
 	}
 
+	private validateRules() {
+		for (const [name, rule] of Object.entries(this.rules)) {
+			// Common NaN check for numeric fields
+			const ensureNumber = (v: unknown, ctx: string) => {
+				if (typeof v !== 'number' || Number.isNaN(v)) {
+					throw new Error(`Invalid ${ctx}: NaN or not a number`);
+				}
+			};
+			const existsByRulesOrAccounts = (accName: string) => {
+				return !!this.findAccountByName(accName) || this.rules[accName] != null;
+			};
+			switch (rule.type) {
+				case 'INPUT':
+				case 'FIXED_VALUE':
+					ensureNumber(rule.value, 'value');
+					break;
+				case 'REFERENCE': {
+					const refName = ACC_NAME(rule.ref.account);
+					if (!existsByRulesOrAccounts(refName)) {
+						throw new Error(`Reference target not found: ${refName}`);
+					}
+					break;
+				}
+				case 'GROWTH_RATE': {
+					ensureNumber(rule.value, 'growth value');
+					if (!Array.isArray(rule.refs) || !rule.refs[0]) {
+						throw new Error('refs is required for GROWTH_RATE');
+					}
+					const refName = ACC_NAME(rule.refs[0].account);
+					if (!existsByRulesOrAccounts(refName)) {
+						throw new Error(`Reference target not found: ${refName}`);
+					}
+					break;
+				}
+				case 'PERCENTAGE': {
+					ensureNumber(rule.value, 'percentage value');
+					const refName = ACC_NAME(rule.ref.account);
+					if (!existsByRulesOrAccounts(refName)) {
+						throw new Error(`Reference target not found: ${refName}`);
+					}
+					break;
+				}
+				case 'CALCULATION': {
+					for (const r of rule.refs) {
+						const refName = ACC_NAME(r.account);
+						if (!existsByRulesOrAccounts(refName)) {
+							throw new Error(`Reference target not found: ${refName}`);
+						}
+					}
+					break;
+				}
+				case 'PROPORTIONATE': {
+					// Minimal checks
+					if (rule.coeff != null) ensureNumber(rule.coeff, 'coeff');
+					break;
+				}
+				default:
+					break;
+			}
+		}
+
+		// 追加: 実績が無いのに PREV 参照がある場合、計算フェーズで確実にエラーにする
+		if (!this.actualYears.length) {
+			const usesPrev = Object.values(this.rules).some(rule => {
+				switch (rule.type) {
+					case 'REFERENCE': return isPrevPeriod(rule.ref.period);
+					case 'GROWTH_RATE': return isPrevPeriod(rule.refs[0]?.period as Period);
+					case 'PERCENTAGE': return isPrevPeriod(rule.ref.period);
+					case 'CALCULATION': return rule.refs.some(r => isPrevPeriod(r.period));
+					case 'PROPORTIONATE': return rule.base ? isPrevPeriod(rule.base.period) : true;
+					default: return false;
+				}
+			});
+			if (usesPrev) {
+				throw new Error('Previous actuals required for prev references');
+			}
+		}
+	}
+
+	private validateBalanceChange(cashName: string) {
+		if (!this.bc || this.bc.length === 0) return;
+		const exists = (name: string) => !!this.findAccountByName(name);
+		for (const inst of this.bc) {
+			if (inst.sign !== 'PLUS' && inst.sign !== 'MINUS') {
+				throw new Error('invalid sign for Balance & Change');
+			}
+			if (!exists(inst.target)) {
+				throw new Error(`target not found: ${inst.target}`);
+			}
+			if (inst.counter && !exists(inst.counter)) {
+				throw new Error(`counter not found: ${inst.counter}`);
+			}
+			if (inst.value == null && !inst.driver?.name) {
+				throw new Error('driver or value is required');
+			}
+		}
+	}
+
 	updateRule(accountName: string, rule: RuleInput) {
 		const acc = this.ensureAccount(accountName);
 		this.rules[accountName] = rule;
@@ -93,9 +189,23 @@ export class FAM {
 
 	compute(opts?: ComputeOptions) {
 		const years = opts?.years ?? 5;
+		if (opts?.cashAccount == null) {
+			throw new Error('cashAccount is required');
+		}
 		const baseProfit = opts?.baseProfitAccount ?? '税前利益';
-		const cash = opts?.cashAccount ?? '現金';
-		if (!this.actualYears.length) throw new Error('No actual years imported');
+		const cash = opts.cashAccount;
+		if (cash !== '現金') {
+			throw new Error('現金(cash) account name mismatch');
+		}
+
+		// 基本バリデーション
+		this.validateRules();
+		this.validateBalanceChange(cash);
+
+		if (!this.actualYears.length) {
+			// 実績ゼロでの計算は不可（とくに PREV 参照時）
+			throw new Error('No previous actuals imported');
+		}
 
 		const latestFY = this.actualYears[this.actualYears.length - 1];
 
@@ -207,7 +317,7 @@ export class FAM {
 		if (!this.rules[name]) {
 			this.visiting.delete(key);
 			// 現金はここで素通り（attachCashで作るため）。他はエラー停止のポリシー。
-			if (name !== '現金') throw new Error(`No rule for ${name} (FY${fy})`);
+			if (name !== '現金') throw new Error(`Rule not found for ${name} (FY${fy})`);
 			return this.ensureCashShellIfAny(fy) ?? ((): never => { throw new Error(`cash shell missing FY${fy}`); })();
 		}
 

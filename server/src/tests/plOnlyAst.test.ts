@@ -92,8 +92,8 @@ describe('FAM as global state → RULES→AST→計算→FAM書戻し→表ビ�
 		expect(table.data[rowIdxByName('経常利益')][colIdx(y2)]).toBe(EXPECTS[1].ORDINARY_INCOME);
 		expect(table.data[rowIdxByName('現金')][colIdx(y2)]).toBe(EXPECTS[1].CASH_END);
 
-		fam.vizAST()
-		console.log(fam.getTable({ fs: 'PL', years: [2001, 2002, 2003, 2004] }));
+		// fam.vizAST()
+		// console.log(fam.getTable({ fs: 'PL', years: [2001, 2002, 2003, 2004] }));
 	});
 
 	test('AST検証（1年目コンテキスト）', () => {
