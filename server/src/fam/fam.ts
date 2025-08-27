@@ -8,6 +8,7 @@ import {
 import { cellId, periodKey } from '@/model/ids.js';
 import { NodeRegistry } from '@/model/registry.js';
 import type { Account, Period, RuleInput } from '@/model/types.js';
+import type { CFI } from '@/model/bc.js';
 
 type Grid = Map<string, number>; // accountName -> value
 
@@ -24,6 +25,7 @@ export class FAM {
 	private rules: Record<string, RuleInput> = {};
 	private table: Map<string, number> = new Map(); // key: cellId(fs, FY, accountId) -> value
 	private orderAccounts: string[] = [];         // 表示順（AccountName）
+	private bc: CFI[] = [];                       // Balance & Change 指示（PoC）
 	// === AST（常駐） ===
 	private reg: NodeRegistry = new NodeRegistry();
 	private cellRoots = new Map<string, string>();  // key = `${fy}::${name}` -> NodeId
@@ -52,6 +54,7 @@ export class FAM {
 		this.orderAccounts = Array.from(names);
 
 		// FY 仮採番（必要なら後で外部入力に差し替え）
+		// TODO: 外部入力からのFY取得
 		const startYear = 2000;
 		this.actualYears = PREVS.map((_, i) => startYear + i);
 
@@ -75,6 +78,11 @@ export class FAM {
 
 	setRules(rules: Record<string, RuleInput>) {
 		this.rules = { ...rules };
+	}
+
+	// Balance & Change 指示をセット（compute の各FYで適用）
+	setBalanceChange(cfis: CFI[]) {
+		this.bc = Array.isArray(cfis) ? [...cfis] : [];
 	}
 
 	updateRule(accountName: string, rule: RuleInput) {
@@ -119,6 +127,9 @@ export class FAM {
 					if (v != null) this.table.set(cid, v);
 				}
 			}
+
+			// ここで B&C を適用（現金の基点利益連動を計算した後、上書きしない）
+			this.applyBalanceChangeForFY(fy, cash);
 		}
 	}
 
@@ -133,10 +144,19 @@ export class FAM {
 			return { accountId: acc.id, name, parentId: acc.parent_id ?? null };
 		});
 
+
+		// 表示時フォールバック：当該FYに値が無ければ直近過去年の値を表示（PoC）
+		const minFY = Math.min(...this.actualYears);
 		const data: number[][] = rows.map(r => {
 			return colYears.map(y => {
-				const cid = cellId(fs, periodKey(y), r.accountId);
-				const v = this.table.get(cid);
+				let yy = y;
+				let v: number | undefined;
+				while (yy >= minFY) {
+					const cid = cellId(fs, periodKey(yy), r.accountId);
+					v = this.table.get(cid);
+					if (v != null) break;
+					yy--;
+				}
 				return v != null ? Math.round(v) : 0;
 			});
 		});
@@ -311,6 +331,53 @@ export class FAM {
 	private ensureCashShellIfAny(fy: number): string | undefined {
 		const id = this.getCellRoot(fy, '現金');
 		return id;
+	}
+
+	// ---- Balance & Change 適用 ----
+	private applyBalanceChangeForFY(fy: number, cashName: string) {
+		if (!this.bc?.length) return;
+
+		// 値取得ヘルパ
+		const getVal = (y: number, name: string): number | undefined => {
+			const acc = this.findAccountByName(name);
+			if (!acc) return undefined;
+			const cid = cellId(this.fs, periodKey(y), acc.id);
+			return this.table.get(cid);
+		};
+		const getOrPrev = (y: number, name: string): number => {
+			const curr = getVal(y, name);
+			if (curr != null) return curr;
+			const prev = getVal(y - 1, name);
+			return prev != null ? prev : 0;
+		};
+		const setVal = (y: number, name: string, v: number) => {
+			const acc = this.ensureAccount(name);
+			const cid = cellId(this.fs, periodKey(y), acc.id);
+			this.table.set(cid, v);
+		};
+
+		for (const inst of this.bc) {
+			// 量の決定：driver(FY+1) か value
+			let amount = 0;
+			if (inst.value != null) {
+				amount = inst.value;
+			} else if (inst.driver?.name) {
+				amount = getOrPrev(fy, inst.driver.name);
+			}
+
+			// 対象と相手勘定の更新
+			const s = inst.sign === 'PLUS' ? 1 : -1;
+			const tPrev = getOrPrev(fy, inst.target);
+			const tNext = tPrev + s * amount;
+			setVal(fy, inst.target, tNext);
+
+			// counter: 現金なら逆方向、その他は対象と同方向（PoC）
+			if (inst.counter) {
+				const cPrev = getOrPrev(fy, inst.counter);
+				const cSign = inst.counter === cashName ? -s : s;
+				setVal(fy, inst.counter, cPrev + cSign * amount);
+			}
+		}
 	}
 
 	// ---- helpers ----
