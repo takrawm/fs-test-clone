@@ -16,6 +16,10 @@ export type NormalSide = 'DEBIT' | 'CREDIT' | 'NONE';
 
 export enum GAID {
 	// ===== BS：資産（流動資産） =====
+	ASSETS = 'ASSETS',                               // 資産（集計用の抽象ノード）
+	LIABILITIES = 'LIABILITIES',                     // 負債（抽象）
+	EQUITY = 'EQUITY',                               // 純資産（抽象）
+
 	CASH = 'CASH',                                     // 現金及び預金
 	NOTES_RECEIVABLE_TRADE = 'NOTES_RECEIVABLE_TRADE', // 受取手形
 	ACCOUNTS_RECEIVABLE_TRADE = 'ACCOUNTS_RECEIVABLE_TRADE', // 売掛金
@@ -247,9 +251,9 @@ const C: NormalSide = 'CREDIT';
 const N: NormalSide = 'NONE';
 
 // 主要な親ノード（表示用の論理グループ）
-const P_BS_ASSETS = GAID.PPE; // 便宜上：有形固定資産を BS/Assets 親の代表として流用（必要なら専用IDを追加）
-const P_BS_LIAB = GAID.LONG_TERM_BORROWINGS;
-const P_BS_EQUITY = GAID.CAPITAL_STOCK;
+const P_BS_ASSETS = GAID.ASSETS;
+const P_BS_LIAB = GAID.LIABILITIES;
+const P_BS_EQUITY = GAID.EQUITY;
 const P_PL_OP = GAID.OPERATING_INCOME;
 const P_PL_ORD = GAID.ORDINARY_INCOME;
 const P_CF = GAID.CFO;
@@ -258,6 +262,10 @@ const P_PPE = GAID.PPE_OPENING_BALANCE_GROSS;
 // 定義本体
 export const GLOBAL_ACCOUNTS: Readonly<Record<GAID, GlobalAccountDef>> = Object.freeze({
 	// BS：資産（流動）
+	[GAID.ASSETS]: A(GAID.ASSETS, '資産', 'Assets', 'BS', N),
+	[GAID.LIABILITIES]: A(GAID.LIABILITIES, '負債', 'Liabilities', 'BS', N),
+	[GAID.EQUITY]: A(GAID.EQUITY, '純資産', 'Equity', 'BS', N),
+
 	[GAID.CASH]: A(GAID.CASH, '現金及び預金', 'Cash and deposits', 'BS', D, P_BS_ASSETS),
 	[GAID.NOTES_RECEIVABLE_TRADE]: A(GAID.NOTES_RECEIVABLE_TRADE, '受取手形', 'Notes receivable - trade', 'BS', D, P_BS_ASSETS),
 	[GAID.ACCOUNTS_RECEIVABLE_TRADE]: A(GAID.ACCOUNTS_RECEIVABLE_TRADE, '売掛金', 'Accounts receivable - trade', 'BS', D, P_BS_ASSETS),
@@ -275,7 +283,7 @@ export const GLOBAL_ACCOUNTS: Readonly<Record<GAID, GlobalAccountDef>> = Object.
 	[GAID.OTHER_CURRENT_ASSETS]: A(GAID.OTHER_CURRENT_ASSETS, 'その他流動資産', 'Other current assets', 'BS', D, P_BS_ASSETS),
 
 	// BS：資産（固定・有形）
-	[GAID.PPE]: A(GAID.PPE, '有形固定資産', 'Property, plant and equipment', 'BS', D),
+	[GAID.PPE]: A(GAID.PPE, '有形固定資産', 'Property, plant and equipment', 'BS', D, P_BS_ASSETS),
 	[GAID.BUILDINGS]: A(GAID.BUILDINGS, '建物', 'Buildings', 'BS', D, GAID.PPE),
 	[GAID.STRUCTURES]: A(GAID.STRUCTURES, '構築物', 'Structures', 'BS', D, GAID.PPE),
 	[GAID.MACHINERY_AND_EQUIPMENT]: A(GAID.MACHINERY_AND_EQUIPMENT, '機械装置', 'Machinery and equipment', 'BS', D, GAID.PPE),
@@ -287,7 +295,7 @@ export const GLOBAL_ACCOUNTS: Readonly<Record<GAID, GlobalAccountDef>> = Object.
 	[GAID.ACCUMULATED_DEPRECIATION]: A(GAID.ACCUMULATED_DEPRECIATION, '減価償却累計額', 'Accumulated depreciation (contra)', 'BS', C, GAID.PPE),
 
 	// BS：資産（固定・無形）
-	[GAID.INTANGIBLE]: A(GAID.INTANGIBLE, '無形固定資産', 'Intangible assets', 'BS', D),
+	[GAID.INTANGIBLE]: A(GAID.INTANGIBLE, '無形固定資産', 'Intangible assets', 'BS', D, P_BS_ASSETS),
 	[GAID.GOODWILL]: A(GAID.GOODWILL, 'のれん', 'Goodwill', 'BS', D, GAID.INTANGIBLE),
 	[GAID.SOFTWARE]: A(GAID.SOFTWARE, 'ソフトウェア', 'Software', 'BS', D, GAID.INTANGIBLE),
 	[GAID.SOFTWARE_IN_PROGRESS]: A(GAID.SOFTWARE_IN_PROGRESS, 'ソフトウェア仮勘定', 'Software in progress', 'BS', D, GAID.INTANGIBLE),
@@ -357,10 +365,10 @@ export const GLOBAL_ACCOUNTS: Readonly<Record<GAID, GlobalAccountDef>> = Object.
 	[GAID.NON_CONTROLLING_INTERESTS]: A(GAID.NON_CONTROLLING_INTERESTS, '非支配株主持分', 'Non-controlling interests', 'BS', C, P_BS_EQUITY),
 
 	// PL：売上～営業
-	[GAID.NET_SALES]: A(GAID.NET_SALES, '売上高', 'Net sales', 'PL', C, P_PL_OP),
-	[GAID.SALES]: A(GAID.SALES, '売上高（互換ID）', 'Sales (alias)', 'PL', C, P_PL_OP),
-	[GAID.COST_OF_SALES]: A(GAID.COST_OF_SALES, '売上原価', 'Cost of sales', 'PL', D, P_PL_OP),
-	[GAID.COGS]: A(GAID.COGS, '売上原価（互換ID）', 'COGS (alias)', 'PL', D, P_PL_OP),
+	[GAID.NET_SALES]: A(GAID.NET_SALES, '売上高', 'Net sales', 'PL', C, GAID.GROSS_PROFIT),
+	[GAID.SALES]: A(GAID.SALES, '売上高（互換ID）', 'Sales (alias)', 'PL', C, GAID.GROSS_PROFIT),
+	[GAID.COST_OF_SALES]: A(GAID.COST_OF_SALES, '売上原価', 'Cost of sales', 'PL', D, GAID.GROSS_PROFIT),
+	[GAID.COGS]: A(GAID.COGS, '売上原価（互換ID）', 'COGS (alias)', 'PL', D, GAID.GROSS_PROFIT),
 	[GAID.GROSS_PROFIT]: A(GAID.GROSS_PROFIT, '売上総利益', 'Gross profit', 'PL', N, P_PL_OP),
 	[GAID.SGA]: A(GAID.SGA, '販売費及び一般管理費', 'Selling, general and administrative expenses', 'PL', D, P_PL_OP),
 	[GAID.DEPRECIATION]: A(GAID.DEPRECIATION, '減価償却費（PL）', 'Depreciation (PL)', 'PL', D, P_PL_OP),
